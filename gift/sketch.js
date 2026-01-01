@@ -11,6 +11,17 @@ let windTarget = 0;
 let calmTimer = 0;
 let inStillness = false;
 
+// Rain variables
+let rainDrops = [];
+let rainIntensity = 0;
+let rainTarget = 0;
+let isRaining = false;
+
+// Music variables
+let rainMusic;
+let musicReady = false;
+let userInteracted = false;
+
 function setup() {
   createCanvas(windowWidth, windowHeight);
   colorMode(HSB, 360, 100, 100, 1);
@@ -20,7 +31,7 @@ function setup() {
     grass.push(new GrassBlade(i + random(-20, 20)));
   }
 
-  // Full moon
+  // Full moon (I am alpha wolf)
   moon = {
     x: 150,
     y: 120,
@@ -31,12 +42,62 @@ function setup() {
   for (let i = 0; i < 6; i++) {
     clouds.push(new Cloud(random(width), random(50, 200), random(80, 160), random(30, 60), random(0.2, 0.6)));
   }
+  
+  // Initialize rain
+  rainIntensity = 0;
+  rainTarget = 0;
+  isRaining = false;
+  
+  // Music Loading
+  rainMusic = loadSound('herplaylist.mp3', 
+    () => {
+      console.log("Music loaded!");
+      musicReady = true;
+    },
+    () => {
+      console.log("Music failed to load");
+      musicReady = false;
+    }
+  );
+  
+  // Click Event (Return to this later)
+  document.addEventListener('click', unlockAudio);
+  document.addEventListener('keydown', unlockAudio);
+}
+
+function unlockAudio() {
+  if (!userInteracted && musicReady) {
+    console.log("User interacted, unlocking audio...");
+    
+    // Create and start a silent buffer to unlock audio
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      const audioCtx = new AudioContext();
+      
+      // Create silent buffer
+      const buffer = audioCtx.createBuffer(1, 1, 22050);
+      const source = audioCtx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(audioCtx.destination);
+      source.start();
+      
+      // Resume context
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      
+      userInteracted = true;
+      console.log("Audio unlocked!");
+    } catch(e) {
+      console.log("Audio unlock failed:", e);
+    }
+  }
 }
 
 function draw() {
   background(0, 0, 0, 0.92);
 
-  // Stars
+  // Stars (Wont work, return after finishing clouds)
   if (stars.length < 150 && random() < 0.02) {
     stars.push(new Star(random(width), random(height)));
   }
@@ -89,6 +150,10 @@ function draw() {
     b.update();
     b.draw();
   }
+  
+  // Rain (Return to this after working on music)
+  updateRain();
+  drawRain();
 
   // Cleanup
   particles = particles.filter(p => !p.dead);
@@ -97,10 +162,37 @@ function draw() {
 
 function mousePressed() {
   flowers.push(new Flower(mouseX, mouseY));
+  unlockAudio(); // Also unlock on canvas click
+}
+
+function keyPressed() {
+  if (key === 'r' || key === 'R') {
+    isRaining = !isRaining;
+    rainTarget = isRaining ? random(0.3, 0.8) : 0;
+    
+    // Control music with rain
+    if (musicReady && userInteracted && rainMusic) {
+      if (isRaining) {
+        console.log("Starting rain and music...");
+        // Start music if not playing
+        if (!rainMusic.isPlaying()) {
+          rainMusic.loop();
+        }
+        rainMusic.setVolume(0.7);
+      } else {
+        console.log("Stopping rain, muting music...");
+        rainMusic.setVolume(0);
+      }
+    } else {
+      console.log("Cannot play music - ready:", musicReady, "interacted:", userInteracted);
+    }
+  }
 }
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
+  // Clear rain on resize
+  rainDrops = [];
 }
 
 // Moon
@@ -388,6 +480,190 @@ class Butterfly {
     ellipse(0, 3, 4, 10);
     pop();
   }
+}
+
+// Rain Funcs (Short for Functions (Only cool kids know))
+
+function updateRain() {
+  // Randomly start/stop rain occasionally
+  if (random() < 0.0002 && !isRaining) {
+    isRaining = true;
+    rainTarget = random(0.3, 0.7);
+  } else if (isRaining && random() < 0.0001) {
+    isRaining = false;
+    rainTarget = 0;
+  }
+  
+  // Smoothly change rain intensity
+  rainIntensity = lerp(rainIntensity, rainTarget, 0.01);
+  
+  // Add new raindrops based on intensity
+  if (rainIntensity > 0.1) {
+    let dropsToAdd = rainIntensity * 3;
+    for (let i = 0; i < dropsToAdd; i++) {
+      if (random() < 0.6) {
+        rainDrops.push(new RainDrop());
+      }
+    }
+  }
+  
+  // Update existing raindrops
+  for (let drop of rainDrops) {
+    drop.update();
+  }
+  
+  // Remove dead drops
+  rainDrops = rainDrops.filter(drop => !drop.dead);
+}
+
+function drawRain() {
+  if (rainIntensity < 0.05) return;
+  
+  // Draw rain streaks
+  for (let drop of rainDrops) {
+    drop.draw();
+  }
+  
+  // Add subtle mist/atmosphere effect
+  push();
+  noStroke();
+  fill(200, 30, 100, rainIntensity * 0.03);
+  rect(0, 0, width, height);
+  pop();
+  
+  // Add occasional lightning (very subtle for coziness)
+  if (random() < rainIntensity * 0.0001) {
+    drawLightningFlash();
+  }
+}
+
+class RainDrop {
+  constructor() {
+    this.x = random(width);
+    this.y = random(-100, -20);
+    this.z = random(0.5, 2); // Depth
+    this.length = map(this.z, 0.5, 2, 8, 20);
+    this.speed = map(this.z, 0.5, 2, 8, 15);
+    this.thickness = map(this.z, 0.5, 2, 1, 1.5);
+    this.opacity = map(this.z, 0.5, 2, 0.3, 0.6) * rainIntensity;
+    this.windEffect = wind * this.z * 2;
+    this.splash = false;
+    this.splashTimer = 0;
+    this.dead = false;
+  }
+  
+  update() {
+    // Move with wind and gravity
+    this.y += this.speed * rainIntensity;
+    this.x += (wind * 3 + this.windEffect) * rainIntensity;
+    
+    // Check if kena lantai
+    if (this.y > height - 20 && !this.splash && rainIntensity > 0.3) {
+      this.splash = true;
+      this.splashTimer = 10;
+      // Create ripple effect
+      if (random() < 0.3) {
+        rainDrops.push(new Ripple(this.x, height - 5));
+      }
+    }
+    
+    // Splash animation
+    if (this.splash) {
+      this.splashTimer--;
+      if (this.splashTimer <= 0) {
+        this.dead = true;
+      }
+    }
+    
+    // Remove if out of bounds
+    if (this.y > height + 50 || this.x < -100 || this.x > width + 100) {
+      this.dead = true;
+    }
+  }
+  
+  draw() {
+    push();
+    if (this.splash) {
+      // Draw splash
+      noFill();
+      stroke(200, 30, 100, this.opacity * (this.splashTimer / 10));
+      strokeWeight(1);
+      let splashSize = (10 - this.splashTimer) * 2;
+      ellipse(this.x, height - 5, splashSize, splashSize * 0.5);
+    } else {
+      // Draw raindrop
+      stroke(200, 30, 100, this.opacity);
+      strokeWeight(this.thickness);
+      line(
+        this.x, 
+        this.y, 
+        this.x + this.windEffect, 
+        this.y + this.length
+      );
+      
+      // Draw droplet at end
+      noStroke();
+      fill(200, 20, 100, this.opacity * 1.5);
+      ellipse(
+        this.x + this.windEffect, 
+        this.y + this.length, 
+        this.thickness * 1.5
+      );
+    }
+    pop();
+  }
+}
+
+class Ripple {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    this.size = 0;
+    this.maxSize = random(15, 30);
+    this.speed = random(0.8, 1.5);
+    this.opacity = random(0.1, 0.2);
+    this.dead = false;
+  }
+  
+  update() {
+    this.size += this.speed;
+    if (this.size > this.maxSize) {
+      this.dead = true;
+    }
+  }
+  
+  draw() {
+    push();
+    noFill();
+    stroke(200, 20, 100, this.opacity * (1 - this.size / this.maxSize));
+    strokeWeight(1);
+    ellipse(this.x, this.y, this.size, this.size * 0.3);
+    pop();
+  }
+}
+
+function drawLightningFlash() {
+  push();
+  noStroke();
+  fill(200, 10, 100, 0.1);
+  rect(0, 0, width, height);
+  
+  // Draw lightning
+  stroke(200, 10, 100, 0.3);
+  strokeWeight(1);
+  noFill();
+  beginShape();
+  let startX = random(width * 0.3, width * 0.7);
+  let startY = 50;
+  vertex(startX, startY);
+  for (let i = 0; i < 6; i++) {
+    vertex(
+      startX + random(-30, 30),
+      startY + (height / 6) * i
+    );
+  }
+  endShape();
+  pop();
 }
 
 // Easing (Note to self: FOR RUNNING!! DONT CHANGE THIS OR U WILL BREAK EVERYTHING)
